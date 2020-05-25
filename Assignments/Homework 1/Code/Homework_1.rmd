@@ -1,0 +1,278 @@
+---
+title: "Modelling_Exercises_Week1"
+author: "Guillem_Amat"
+date: "September 2, 2019"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Old Faithful\
+
+
+**1. Regression Model**\
+
+```{r}
+
+#We first import the data from the CSV file
+Eruption_Data <- read.csv(file = "C:/Users/Guillem/Desktop/Duke University/11_Modelling and Representation of Data/0_Homework Exercises/0_Data/Homework 1/OldFaithful.csv", header = TRUE, sep = ",")
+
+
+#We create a linear model to predict Interval from Duration
+Eruption_Model <- lm(Interval ~ Duration, data = Eruption_Data)
+```
+
+
+**2. Model Interpretation**\
+
+```{r}
+
+#Inspecting the results 
+summary(Eruption_Model)
+
+#Fitting the model to the data
+plot(Eruption_Data$Duration, Eruption_Data$Interval, xlab = "Duration", ylab = "Interval", main = "Eruptions", pch = 20)
+abline(Eruption_Model, col = "red")
+```
+
+- Intercept: 33.8282. It would be the value of the Interval between eruptions if there was an Eruption of Duration 0.
+- Slope: 10.7410. For each unit of Duration (minutes), Interval increases by the slope value.
+- Residual Error: 6.683. It measures the standard deviation of the value of the errors and how close the fit is to the points. 
+- R-Squared: 0.7369. It measures the proportion of the variance in the model that is explained by the data. This is a pretty high value.\
+
+
+
+**3. Confidence Interval**\
+
+```{r}
+confint(Eruption_Model, level = 0.95)
+```
+
+The 95% confidence interval for the slope is between 9.4 and 11.98. We are confident that Duration and Interval are positively correlated; the longer the duration of an eruption the more tourists will need to wait for the next one.\ 
+
+
+
+**4. Residuals**\
+
+```{r}
+Eruption_Residual = resid(Eruption_Model)
+plot(Eruption_Data$Duration, Eruption_Residual, ylab="Residuals", xlab="Interval", main="Old Faithful Eruptions") 
+abline(0, 0)
+```
+
+Although the results seem a bit odd, we can not see a clear discernible pattern among the residuals. Based on the residual plot above, it seems the model fulfills the regression assumption.
+
+
+**5. Confidence Intervals for specific Durations**\
+
+```{r}
+Durations <- data.frame(Duration = c(2, 2.5, 3, 3.5, 4))
+Durations_Prediction <- data.frame(predict(Eruption_Model, Durations, interval = "prediction"))
+
+#We plot the three points in the line
+plot(Durations_Prediction$fit ~ Durations$Duration, pch = 20, xlab = "Duration", ylab = "Interval", xlim = c(2,4), ylim =c(20, 100))
+
+
+abline(Eruption_Model, col = "red")
+lines(Durations$Duration, Durations_Prediction$lwr, col = "red", lty = 2)
+lines(Durations$Duration, Durations_Prediction$upr, col = "red", lty = 2)
+```
+
+
+
+## Respiratory Rates for Children\
+
+```{r}
+#We first import the data from the CSV file
+Respiratory_Data <- read.csv(file = "C:/Users/Guillem/Desktop/Duke University/11_Modelling and Representation of Data/0_Homework Exercises/0_Data/Homework 1/Respiratory.csv", header = TRUE, sep = ",")
+```
+
+**1. Normal Range for Children**\
+```{r}
+Respiratory_Kids_Data <- Respiratory_Data[which(Respiratory_Data$Age <= 3),]
+m <- mean(Respiratory_Kids_Data$Rate)
+s <- sqrt(var(Respiratory_Kids_Data$Rate))
+x <- Respiratory_Kids_Data$Rate
+
+hist(Respiratory_Kids_Data$Rate, density = 20, freq = FALSE, main = "Children Respiratory Normal Range", xlab = "Rate")
+curve(dnorm(x, mean = m, sd = s), add = TRUE, col = "darkblue", lwd = 2)
+
+```
+
+
+
+**2. Model and Linear Transformations**\
+
+As a first step we fit the model to the data, inspect summary statistics, plot the data as a scatterplot and fit the model to it.
+
+```{r}
+#We fit the data to a model and we check summary statistics
+Respiratory_Model <- lm(Rate ~ Age, data = Respiratory_Data)
+summary(Respiratory_Model)
+
+#We plot the values as a scatter plot and fit the model in the plot
+plot(Respiratory_Data$Age, Respiratory_Data$Rate, xlab = "Age", ylab = "Rate", main= "Respiratory Data", pch = 20)
+abline(Respiratory_Model, col="red")
+```
+
+
+We compute and display the different model diagnostics to check for Normality, Linearity, Independence and Equal Variance. 
+
+
+```{r}
+par(mfrow = c(2,2))
+
+#Checking Linearity
+plot(Respiratory_Model$residuals, x = Respiratory_Data$Age, xlab = "Age", ylab = "Residuals", main = "Linearity")
+abline(0, 0)
+
+#Checking Independence and Equal Variance
+plot(Respiratory_Model, which = 1)
+
+#Checking Normality
+plot(Respiratory_Model, which = 2)
+
+```
+
+It seems the model assumptions might not be reasonalble for this dataset:
+
+- In the Linearity plot, we should observe no discernible pattern of any type. Instead we can clearly see the data forming a funnel.
+- In the Residuals vs Fitted plot, which we use to check for Independence and Equal Variance, we can observe the data forming a curve.
+- The Normality does not seem to hold as a considerable number of residuals in the qqplot along the edges stray away from the line.
+
+
+```{r}
+
+plot(Respiratory_Data$Age, log(Respiratory_Data$Rate), xlab = "Age", ylab = "Rate", main= "Respiratory Data", pch = 20)
+abline(Respiratory_Model, col="red")
+
+
+```
+
+If we apply a logarithmic transformation to the y axis the data seems to have a stronger linear pattern.
+
+
+**3. Confidence Intervals**\
+
+
+```{r}
+
+Kids_Age <- data.frame(Age = c(0.1, 1.5, 2.5))
+Kids_Prediction <- data.frame(predict(Respiratory_Model, Kids_Age, interval = "prediction"))
+
+#We plot the three points in the line
+plot(Kids_Prediction$fit ~ Kids_Age$Age, pch = 20, xlim = c(0,2.5), ylim =c(0, 70), xlab = "Age", ylab = "Fit")
+
+
+abline(Respiratory_Model, col = "red")
+lines(Kids_Age$Age, Kids_Prediction$lwr, col = "red", lty = 2)
+lines(Kids_Age$Age, Kids_Prediction$upr, col = "red", lty = 2)
+
+```
+
+
+## Elections\
+
+**1. Scatterplot of Bush vs Buchanan**\
+
+As always, we start by importing the data.
+
+```{r}
+
+#Importing the data
+Elections_Data <- read.csv(file = "C:/Users/Guillem/Desktop/Duke University/11_Modelling and Representation of Data/0_Homework Exercises/0_Data/Homework 1/Elections.csv", header = TRUE, sep = ",")
+
+```
+
+We create a linear model by predicting Buchanan votes from Bush votes and plot the values as a scatter plot while fitting the model to the data.
+
+```{r}
+Elections_Model <- lm(Buchanan2000 ~ Bush2000, data = Elections_Data)
+summary(Elections_Model)
+
+plot(Elections_Data$Bush2000, Elections_Data$Buchanan2000, xlab = "Bush2000", ylab = "Buchanan2000", main= "Elections Data", pch = 20)
+abline(Elections_Model, col="red")
+```
+
+From what we can see in the scatterplot, there is a strong linear relationship between the number of votes Buchanan got per county and the number of votes Bush got. There is a clear outlier, which is Palm Beach county that does not yield the expected result.
+
+**2. Scatterplot and Model of Bush vs Buchanan without Palm Beach County**\
+
+```{r}
+Elections_Data_WPM <- Elections_Data[which(Elections_Data$County != "Palm Beach"), ]
+
+Elections_Model_WPM <- lm(Buchanan2000 ~ Bush2000, data = Elections_Data_WPM)
+
+summary(Elections_Model_WPM)
+
+plot(Elections_Data_WPM$Bush2000, Elections_Data_WPM$Buchanan2000, xlab = "Bush2000", ylab = "Buchanan2000", main= "Elections Data", pch = 20)
+abline(Elections_Model_WPM, col="red")
+```
+
+By removing Palm Beach County, R-Squared increases dramatically from ~40% to ~80%. This means that the variance that the model explains increases by a factor of two.
+
+
+**3. Model Assumptions and Output**\
+
+
+```{r}
+par(mfrow = c(2, 2))
+
+#Checking Linearity
+plot(Elections_Model_WPM$residuals, x = Elections_Data_WPM$Bush2000, xlab = "Bush200", ylab = "Residuals", main = "Linearity")
+abline(0, 0)
+
+#Checking Independence and Equal Variance
+plot(Elections_Model_WPM, which = 1)
+
+#Checking Normality
+plot(Elections_Model_WPM, which = 2)
+```
+
+It seems the model assumptions might not be reasonalble for this dataset:
+
+- In the Linearity plot, we should observe no discernible pattern of any type. Instead we can clearly see the data values diverging as the variable in the x-axis increase.
+- In the Residuals vs Fitted plot, which we use to check for Independence and Equal Variance, we can observe how the fitted values that are higher also have higher residuals.
+- The Normality does not seem to hold as a considerable number of residuals in the qqplot along the right edge stray away from the line.
+
+We proceed to try to apply logarithmic transformations to see if fit improves and assumptions become reasonable.
+
+```{r}
+Elections_Model_log_WPM <- lm(log(Buchanan2000) ~ Bush2000, data = Elections_Data_WPM)
+
+summary(Elections_Model_log_WPM)
+
+plot(Elections_Data_WPM$Bush2000, log(Elections_Data_WPM$Buchanan2000), xlab = "Bush2000", ylab = "Buchanan2000", main= "Elections Data", pch = 20)
+abline(Elections_Model_log_WPM, col="red")
+```
+
+We then check for the different model assumptions.
+
+```{r}
+par(mfrow = c(2, 2))
+
+#Checking Linearity
+plot(Elections_Model_log_WPM$residuals, x = Elections_Data_WPM$Bush2000, xlab = "Bush200", ylab = "Residuals", main = "Linearity")
+abline(0, 0)
+
+#Checking Independence and Equal Variance
+plot(Elections_Model_log_WPM, which = 1)
+
+#Checking Normality
+plot(Elections_Model_log_WPM, which = 2)
+```
+
+It does not seem that logarithmic transformations help improve the model assumptions. Neither Linearity, Variance or Normality seem reasonable after applying a log transformation and R-Squared dimnishes.
+
+**4. Confidence Intervals**\
+
+```{r}
+
+Palm_Beach_County <- data.frame(Bush2000 = c(Elections_Data[which(Elections_Data$County == "Palm Beach"), ]$Bush200))
+predict(Elections_Model_WPM, Palm_Beach_County, interval = "prediction")
+```

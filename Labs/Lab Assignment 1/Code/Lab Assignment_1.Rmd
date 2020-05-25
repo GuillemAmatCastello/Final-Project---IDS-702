@@ -1,0 +1,218 @@
+---
+title: "Lab Assignment 1"
+author: "Guillem_Amat"
+date: "September 6, 2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Lab Assignment 1
+
+**1. Comparing distribution**
+\ 
+
+
+```{r}
+
+#Import the data from a CSV file
+beer <- read.csv(file = "C:/Users/Guillem/Desktop/Duke University/Modelling and Representation of Data/3_Lab Assignments/Lab Assignment 1/Data/consumo_cerveja.csv", header = TRUE, sep = ",")
+
+beer <- beer[1:365,]
+
+```
+
+```{r}
+
+# rename the variables
+beer$date <- beer$Data
+beer$temp_median_c <- as.numeric(beer$Temperatura.Media..C.)
+beer$temp_min_c <- as.numeric(beer$Temperatura.Minima..C.)
+beer$temp_max_c <- as.numeric(beer$Temperatura.Maxima..C.)
+beer$precip_mm <- as.numeric(beer$Precipitacao..mm.)
+beer$weekend <- factor(beer$Final.de.Semana)
+beer$beer_cons_liters <- as.numeric(beer$Consumo.de.cerveja..litros.)
+beer <- beer[ , 8:ncol(beer)]
+
+#Defining mean, standard deviation and data vector for normal distribution formula
+mbeer <- mean(beer$beer_cons_liters)
+sdbeer <- sqrt(var(beer$beer_cons_liters))
+x <- beer$beer_cons_liters
+
+
+hist(beer$beer_cons_liters, freq = FALSE, density = 20, xlab = "Beer Consumption", main = "Histogram of Beer Consumption")
+#curve(dnorm(x, mbeer, sdbeer), add = TRUE, lwd = 2, col = "red")
+```
+
+
+```{r}
+
+#Trying to fit logarithmic distribution
+hist(log(beer$beer_cons_liters), freq = FALSE, density = 20)
+
+#The curve does not seem to work with the logarithmic histogram
+#curve(dnorm(x, mbeer, sdbeer), add = TRUE, lwd = 2, col = "red")
+```
+It seems the non-logarithmic distribution has a more normal distribution.<br />
+
+**2. Plots of Consumption vs Potential Predictor**
+\ 
+
+
+```{r}
+par(mfrow = c(2, 3))
+
+plot(log(beer_cons_liters) ~ date, data = beer)
+plot(log(beer_cons_liters) ~ temp_median_c, data = beer)
+plot(log(beer_cons_liters) ~ temp_min_c, data = beer)
+plot(log(beer_cons_liters) ~ temp_max_c, data = beer)
+plot(log(beer_cons_liters) ~ precip_mm, data = beer)
+boxplot(log(beer_cons_liters) ~ weekend, data = beer)
+
+```
+Date does not seem to have a linear relationship with beer consumption, we can just observe a cloud points without a discernible pattern.
+\ 
+
+
+**3. Temperature**
+\ 
+
+
+```{r}
+
+cor(beer$temp_median_c, beer$temp_min_c)
+cor(beer$temp_median_c, beer$temp_max_c)
+cor(beer$temp_max_c, beer$temp_min_c)
+
+```
+
+I would not say we should include all three temperature variables in our model. They are highly correlaed between each other so the model would have multicolinearity. This would make it harder for us to interpret the results.
+&nbsp;
+
+
+**4. Model fit**
+\ 
+
+
+```{r}
+
+beer_model <- lm(beer_cons_liters ~ temp_median_c + precip_mm + weekend, data = beer)
+summary(beer_model)
+
+```
+
+All the variables seem to have a relationship with beer consumption as indicated by the low p-values.
+
+- Median temperature has a positive relationship with beer consumption, the hotter the temperature the more beer people drink.
+- Precipitation has a negative relationship with beer consumption. The more it rains in mm the less beer people drink.
+- Weekend has a positive relationship with beer consumption. On the weekends, people consume ~5 more Liters on average.
+\ 
+
+
+
+**5. Least Covariate Variable**
+\ 
+
+It seems that the variable that varies the least is the median temperature as it has a standard error of 0.001828.
+\ 
+
+
+**6. Potential Limitations**
+\ 
+
+
+There are two potential problems: Extrapolation and Correlations.
+
+- Extrapolation is the act of predicting beyond the range of values that were used to fit the model. We can not assume that the linear trend will hold beyond our range of values.
+- Correlation does not imply causality. Just because two variables vary at the same time, we can not assume that one is causing the changes in the other.
+\ 
+
+**7. RMSE**
+\ 
+
+```{r}
+
+variables <- beer[c("weekend", "precip_mm", "temp_median_c")]
+prediction <- predict(beer_model, variables)
+RMSE <- mean((beer$beer_cons_liters - prediction)^2)
+sqrt(RMSE)
+
+```
+\ 
+
+
+**8. K-Fold Cross Validation**
+\ 
+
+
+```{r}
+
+set.seed(25)
+
+Kdata <- beer[sample(nrow(beer)),]
+K <- 10
+RMSE1 <- matrix(0,nrow=K,ncol=1)
+kth_fold <- cut(seq(1,nrow(Kdata)),breaks=K,labels=FALSE)
+for(k in 1:K){
+  test_index <- which(kth_fold==k)
+  train <- Kdata[-test_index,]
+  test <- Kdata[test_index,]
+  train_beer <- lm(beer_cons_liters ~ temp_median_c + precip_mm + weekend, data = train)
+  Kprediction <- predict(train_beer, test)
+  RMSE1[k,] <- sqrt(mean((test$beer_cons_liters- Kprediction)^2))
+  }
+
+mean(RMSE1)
+
+
+```
+\ 
+
+
+
+**9. Prediction expanded**
+\ 
+
+```{r}
+
+beer_interaction_model <- lm(beer_cons_liters ~ temp_median_c + precip_mm + weekend + weekend:temp_median_c + weekend:precip_mm, data = beer)
+
+summary(beer_interaction_model)
+
+```
+
+It does not seem that there is any significant interaction between weekend and the other two variables, from looking at the p-values. This can easily be interpreted: The weekend does not have any effect on temperature and precipitation.
+\ 
+
+
+
+**10. RMSE on Model with Interactions**
+\ 
+
+
+
+```{r}
+set.seed(25)
+
+Kdata <- beer[sample(nrow(beer)),]
+K <- 10
+RSME1 <- matrix(0,nrow=K,ncol=1)
+kth_fold <- cut(seq(1,nrow(Kdata)),breaks=K,labels=FALSE)
+for(k in 1:K){
+  test_index <- which(kth_fold==k)
+  train <- Kdata[-test_index,]
+  test <- Kdata[test_index,]
+  train_beer <- lm(beer_cons_liters ~ temp_median_c + precip_mm + weekend + weekend:precip_mm + weekend:temp_median_c, data = train)
+  Kprediction <- predict(train_beer, test)
+  RMSE1[k,] <- sqrt(mean((test$beer_cons_liters- Kprediction)^2))
+}
+
+mean(RMSE1)
+
+```
+
+The RMSE for this model is slightly higher. A higher RMSE means that the data fits this model worse, as the mean difference betweeen the actual values and the predicted ones is higher.

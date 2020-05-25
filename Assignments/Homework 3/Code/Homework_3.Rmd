@@ -1,0 +1,470 @@
+---
+title: "Homework 3: Maternal Smoking and Pre-Term Birth"
+author: "Guillem_Amat"
+date: "September 26, 2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r include = FALSE}
+
+rm(list = ls())
+library(arm)
+library(pROC)
+library(e1071)
+library(caret)
+library(kableExtra)
+library(plyr)
+library(dplyr)
+
+```
+
+
+
+```{r include = FALSE}
+#Importing the data
+births <- read.csv("C:/Users/Guillem/Desktop/Duke University/Modelling and Representation of Data/1_Homework Exercises/Homework 3/Data/smoking.csv", header = TRUE)
+
+#Creating the Premature variable
+births$Premature <- rep(0, nrow(births))
+births$Premature[births$gestation < 270] <- 1
+births$Premature <- as.factor(births$Premature)
+
+#Converting Variables to Factors
+births$mrace <- as.factor(births$mrace)
+births$med <- as.factor(births$med)
+
+#Renaming Values
+births <- transform(births, mrace = revalue(mrace, c("0" = "white", "1"="white", "2" = "white", "3" = "white", "4" = "white", "5" = "white", "6"="mexican", "7"="black", "8"="asian", "9"="mix")))
+
+births <- transform(births, med = revalue(med, c("0" = "Elementary and Middle School", "1" = "Elementary and Middle School", "2" = "High School", "3" = "High School", "4" = "College", "5" = "College", "6" = "Trade School", "7" = "Trade School", "9" = "unknown")))
+
+```
+
+
+```{r include = FALSE}
+
+#Observing the Data
+str(births)
+dim(births)
+head(births)
+summary(births[,-1])
+
+#Table of Premature Births Frequency
+table(births$Premature)%>%
+  kable() %>%
+  kable_styling()
+
+#Table of Race Frequency
+table(births$mrace) %>%
+  kable() %>%
+  kable_styling()
+
+#Table of Mother's Smoking Frequency
+table(births$smoke)%>%
+  kable() %>%
+  kable_styling()
+
+```
+
+
+```{r include = FALSE}
+par(mfrow= c(2,3))
+
+#Height
+boxplot(mht~Premature,data=births,ylab="Mother's Height",pch=25,xaxt='n',
+        xlab="Premature baby?",col=c(rgb(0.1,0.1,0.7,0.5) , rgb(0.8,0.1,0.3,0.6)),cex = 0.85,main ="Premature & Height")
+axis(1,at=c(1,2),labels=c("No","Yes"))
+
+#Weight
+boxplot(mpregwt~Premature,data=births,ylab="Mother's Weight",pch=25,xaxt='n',
+        xlab="Premature baby?",col=c(rgb(0.1,0.1,0.7,0.5) , rgb(0.8,0.1,0.3,0.6)),cex = 0.85,main ="Premature & Weight")
+axis(1,at=c(1,2),labels=c("No","Yes"))
+
+#Age
+boxplot(mage~Premature,data=births,ylab="Mother's Age",pch=25,xaxt='n',
+        xlab="Premature baby?",col=c(rgb(0.1,0.1,0.7,0.5) , rgb(0.8,0.1,0.3,0.6)),cex = 0.85,main ="Premature & Age")
+axis(1,at=c(1,2),labels=c("No","Yes"))
+
+#Income
+boxplot(inc~Premature,data=births,ylab="Mother's Income",pch=25,xaxt='n',
+        xlab="Premature baby?",col=c(rgb(0.1,0.1,0.7,0.5) , rgb(0.8,0.1,0.3,0.6)),cex = 0.85,main ="Premature & Income")
+axis(1,at=c(1,2),labels=c("No","Yes"))
+
+#Parity
+boxplot(parity~Premature,data=births,ylab="Mother's Parity",pch=25,xaxt='n',
+        xlab="Premature baby?",col=c(rgb(0.1,0.1,0.7,0.5) , rgb(0.8,0.1,0.3,0.6)),cex = 0.85,main ="Premature & Parity")
+axis(1,at=c(1,2),labels=c("No","Yes"))
+
+```
+
+
+
+```{r include = FALSE}
+#Chances of Premature Babies depending on whether Mother smoked
+
+#Conditional Probabilities
+apply(table(births[,c("smoke","Premature")])/sum(table(births[,c("smoke","Premature")])),
+      2,function(x) x/sum(x))
+
+# Finally, we can even try a chi-squared test for independence.
+chisq.test(table(births[,c("smoke","Premature")]))
+
+```
+
+```{r include = FALSE}
+
+par(mfrow = c(1,2))
+
+barplot(table(births[,c("Premature","mrace")]))
+
+barplot(table(births[,c("Premature", "med")]))
+
+```
+
+```{r include = FALSE}
+#Chances of Premature Babies based on Education Level
+
+#Conditional Probabilities
+barplot(table(births[,c("Premature", "med")]))
+
+
+```
+
+
+```{r include = FALSE}
+
+#Centering the continuous variables to aid in interpretation
+births$mpregwt_c <- births$mpregwt - mean(births$mpregwt)
+births$mht_c <- births$mht - mean(births$mht)
+births$mage_c <- births$mage - mean(births$mage)
+
+birthsmod1 <- glm(Premature ~ mht_c + mpregwt_c + med + smoke + mrace + mage_c + parity + inc, data = births, family = binomial)
+summary(birthsmod1)
+
+```
+
+```{r include = FALSE}
+#Testing removing parity
+birthsmod2 <- glm(Premature ~ mht_c + mpregwt_c + med + smoke + mrace + mage_c + inc, data = births, family = binomial)
+anova(birthsmod1, birthsmod2, test= "Chisq")
+
+#Testing removing income
+birthsmod3 <- glm(Premature ~ mht_c + mpregwt_c + med + smoke + mrace + mage_c + parity, data = births, family = binomial)
+anova(birthsmod1, birthsmod3, test= "Chisq")
+```
+
+```{r include = FALSE}
+#Checking whether there is a relation between mother's smoking and race
+
+birthsmod4 <- glm(Premature ~ mrace:smoke + mht_c + mpregwt_c + med + smoke + mrace + mage_c, data = births, family = binomial)
+anova(birthsmod1, birthsmod4, test= "Chisq")
+
+
+```
+
+```{r include = FALSE}
+
+#Checking whether there is a relation between mother's Age and Mother's eduaction level
+
+birthsmod4 <- glm(Premature ~ med:mage_c + mht_c + mpregwt_c + med + smoke + mrace + mage_c, data = births, family = binomial)
+anova(birthsmod1, birthsmod4, test= "Chisq")
+
+```
+
+```{r include = FALSE}
+
+summary(birthsmod4)
+
+```
+
+
+```{r include = FALSE}
+
+rawresid1 <- residuals(birthsmod4,"resp")
+
+par(mfrow = c(2,2))
+
+#Binned residual plot of predicted vs actual values
+binnedplot(x=fitted(birthsmod4),y=rawresid1,xlab="Pred. probabilities",
+           col.int="red4",ylab="Avg. residuals",main="Binned residual plot",col.pts="navy")
+
+#Binned residual plot of Weight centered
+binnedplot(x=births$mpregwt_c,y=rawresid1,xlab="Weight centered",
+           col.int="red4",ylab="Avg. residuals",main="Binned residual plot",col.pts="navy")
+
+#Binned residual plot of Height centered
+binnedplot(x=births$mht_c,y=rawresid1,xlab="Height centered",
+           col.int="red4",ylab="Avg. residuals",main="Binned residual plot",col.pts="navy")
+
+#Binned residual plot of Age centered
+binnedplot(x=births$mage_c,y=rawresid1,xlab="Age centered",
+           col.int="red4",ylab="Avg. residuals",main="Binned residual plot",col.pts="navy")
+
+
+```
+
+  
+
+```{r include = FALSE}
+
+#With a 0.5 Threshold
+Conf_mat <- confusionMatrix(as.factor(ifelse(fitted(birthsmod4) >= 0.5, "1","0")),
+                            as.factor(births$Premature),positive = "1")
+Conf_mat$table
+Conf_mat$overall["Accuracy"];
+Conf_mat$byClass[c("Sensitivity","Specificity")]
+
+#With a 0.75 Threshold
+Conf_mat <- confusionMatrix(as.factor(ifelse(fitted(birthsmod4) >= 0.75, "1","0")),
+                            as.factor(births$Premature),positive = "1")
+Conf_mat$table
+Conf_mat$overall["Accuracy"];
+Conf_mat$byClass[c("Sensitivity","Specificity")]
+
+#With a 0.25 Threshold
+Conf_mat <- confusionMatrix(as.factor(ifelse(fitted(birthsmod4) >= 0.25, "1","0")),
+                            as.factor(births$Premature),positive = "1")
+Conf_mat$table
+Conf_mat$overall["Accuracy"];
+Conf_mat$byClass[c("Sensitivity","Specificity")]
+
+
+```
+
+
+```{r include = FALSE}
+
+par(mfrow = c(1, 2))
+
+#The thresholds that we analyzed for the Confusion Matrix
+roc(births$Premature,fitted(birthsmod4),plot=T,print.thres=c(0.25, 0.5, 0.75),legacy.axes=T,
+    print.auc =T,col="red3")
+
+#The best threshold
+roc(births$Premature,fitted(birthsmod4),plot=T,print.thres="best",legacy.axes=T,
+    print.auc =T,col="red3")
+
+```
+
+
+
+```{r include = FALSE}
+
+exp(birthsmod4$coefficients) %>%
+  kable() %>%
+  kable_styling()
+
+exp(confint.default(birthsmod4)) %>%
+  kable() %>%
+  kable_styling()
+
+```
+
+
+#### Summary  
+
+After analyzing which factors cause Premature births in babies, it was concluded that mother's smoking habits and their race had a significant impact on premature births.
+
+The odds ratio between mothers who smoked and those that did not, did not differ between races.
+
+Mother's weight was another variable that had a significant impact on premature births.
+
+#### Introduction  
+
+
+The study concerned investigating premature births in babies. The analysis targeted answering whether mothers who smoked tended to give birth to premature babies, whether the odds ratio between smokers and non-smokers differed between different races and whether there were any other interesting associations. 
+
+
+#### Data  
+
+The original dataset contained 21 variables that included parent's and pregnancy information for babies being born at the Kaiser Foundation Hospital. Many values where missing for the fathers, as it is sometimes hard to record information on them, so a first step in the analysis was to filter columns with this issue in order to get a dataset with complete observations.
+
+Furthermore the 0-5 values in race were collapsed to white. The education levels were reorganized into more easily interpretable groups: Elementary School, High School, College and Trade School. The Id and date variables were  excluded from the analysis as they did not add any specific information.
+
+The continuous variables Height, Weight, Age, Parity and Income were plotted against Premature Births to check whether there could be an interesting association. While none of the variables seemed to have a large impact on Premature births, Parity and Income seemed to have no impact at all.
+
+```{r echo = FALSE}
+par(mfrow= c(2,3))
+
+#Height
+boxplot(mht~Premature,data=births,ylab="Mother's Height",pch=25,xaxt='n',
+        xlab="Premature baby?",col=c(rgb(0.1,0.1,0.7,0.5) , rgb(0.8,0.1,0.3,0.6)),cex = 0.85,main ="Premature & Height")
+axis(1,at=c(1,2),labels=c("No","Yes"))
+
+#Weight
+boxplot(mpregwt~Premature,data=births,ylab="Mother's Weight",pch=25,xaxt='n',
+        xlab="Premature baby?",col=c(rgb(0.1,0.1,0.7,0.5) , rgb(0.8,0.1,0.3,0.6)),cex = 0.85,main ="Premature & Weight")
+axis(1,at=c(1,2),labels=c("No","Yes"))
+
+#Age
+boxplot(mage~Premature,data=births,ylab="Mother's Age",pch=25,xaxt='n',
+        xlab="Premature baby?",col=c(rgb(0.1,0.1,0.7,0.5) , rgb(0.8,0.1,0.3,0.6)),cex = 0.85,main ="Premature & Age")
+axis(1,at=c(1,2),labels=c("No","Yes"))
+
+#Income
+boxplot(inc~Premature,data=births,ylab="Mother's Income",pch=25,xaxt='n',
+        xlab="Premature baby?",col=c(rgb(0.1,0.1,0.7,0.5) , rgb(0.8,0.1,0.3,0.6)),cex = 0.85,main ="Premature & Income")
+axis(1,at=c(1,2),labels=c("No","Yes"))
+
+#Parity
+boxplot(parity~Premature,data=births,ylab="Mother's Parity",pch=25,xaxt='n',
+        xlab="Premature baby?",col=c(rgb(0.1,0.1,0.7,0.5) , rgb(0.8,0.1,0.3,0.6)),cex = 0.85,main ="Premature & Parity")
+axis(1,at=c(1,2),labels=c("No","Yes"))
+
+```
+
+The categorical variables were also analyzed to see if there was an interesting association between them and Premature Births. Mother's who smoked seemed more likely to give birth to Premature babies (53% vs 47% in conditional probabilities). See table below:
+
+```{r echo = FALSE}
+
+apply(table(births[,c("smoke","Premature")])/sum(table(births[,c("smoke","Premature")])),
+      2,function(x) x/sum(x))
+
+```
+
+The number of Premature births per mother races was calculated. Certain mother races had larger numbers of Premature births, in particular babies born from black and asian mothers. Finally, the same was done for educational levels, and mothers that graduated from college had the lowest numbers of premature births.
+
+#### Model  
+
+The final model selected was *Premature ~ med:mage_c + mht_c + mpregwt_c + med + smoke + mrace + mage_c*.
+
+The model was selected based on what was learnt during the Exploratory Data Analysis: 
+
+- An initial logistic model with all the variables was fitted to the data. 
+
+- After that a second model without Income was fitted and a Chi-Squared test was performed between this second model and the first one to check whether Income had an influence on Premature births. Given the low p-value, we were not able to reject the null hypothesis and the variable was removed from the model. The same process was repeated for Parity, with the exact same results on the Chi-Squared test, so Parity was also removed.
+
+- After that, Interactions were tested. A first interaction between race and smoke was tested by creating a model with it and performing a Chi-Squared test against the model without Income or Parity. Given the low p-value, the interaction between mother's race and whether they smoked was dimmed not significant and was not included. The interaction between mother's education level and age was tested, which resulted in a low p-value, indicating a significant interaction, so it was included in the final model.
+
+- Binned residuals plots were used to check that residuals were distributed randomly across positive and negative values. This was the case. This means that the model does a good job describing the data. 
+
+```{r echo = FALSE}
+
+rawresid1 <- residuals(birthsmod4,"resp")
+
+par(mfrow = c(2,2))
+
+#Binned residual plot of predicted vs actual values
+binnedplot(x=fitted(birthsmod4),y=rawresid1,xlab="Pred. probabilities",
+           col.int="red4",ylab="Avg. residuals",main="Binned residual plot",col.pts="navy")
+
+#Binned residual plot of Weight centered
+binnedplot(x=births$mpregwt_c,y=rawresid1,xlab="Weight centered",
+           col.int="red4",ylab="Avg. residuals",main="Binned residual plot",col.pts="navy")
+
+#Binned residual plot of Height centered
+binnedplot(x=births$mht_c,y=rawresid1,xlab="Height centered",
+           col.int="red4",ylab="Avg. residuals",main="Binned residual plot",col.pts="navy")
+
+#Binned residual plot of Age centered
+binnedplot(x=births$mage_c,y=rawresid1,xlab="Age centered",
+           col.int="red4",ylab="Avg. residuals",main="Binned residual plot",col.pts="navy")
+
+
+```
+
+- Finally a Confusion Matrix and an ROC curve were used to diagnose how well the model performed. The AUC of the model was 0.668 and with a threshold of 0.25, the model's Accuracy was 74%, its Sensitivity 38% and its Specificity 82%. 
+
+```{r echo = FALSE}
+
+#The thresholds that we analyzed for the Confusion Matrix
+roc(births$Premature,fitted(birthsmod4),plot=T,print.thres=c(0.25),legacy.axes=T,
+    print.auc =T,col="red3")
+
+```
+
+
+#### Results and Conclusions  
+
+
+```{r echo = FALSE}
+
+exp(birthsmod4$coefficients) %>%
+  kable() %>%
+  kable_styling()
+
+exp(confint.default(birthsmod4)) %>%
+  kable() %>%
+  kable_styling()
+
+```
+
+
+The Intercept represents the odds of giving birth to a premature baby for a white mother that does not smoke, that only has elementary or middle school education and that is of average height, age and weight. The odds of this situation were 0.23, and we are 95% confident that the value of the Intercept fell between 0.14 and 0.39.
+
+Mothers with the aforementioned characteristics but that also smoked were 1.37 times more likely to give birth to premature babies. The 95% confidence interval in this case was 0.95 and 1.97.
+
+In terms of race, black mothers were 2.03 times more likely to give birth to premature babies (with 95% confidence interval between 1.3 and 3) and asian mothers 2.57 more likely (with confidence interval between 1.13 and 5.7). Race seemed to be a good predictor of premature births.
+
+Finally, I also wanted to note the predictive power of mother's weight, which had a low p-value, indicating a relationship with premature births. No other variables in the dataset other than the ones mentioned seemed to be great predictors of premature births. 
+
+
+#### Analysis and Model Limitations   
+
+There were some potential limitations in the analysis, specifically coming from the dataset. There was a way larger number of normal births than premature ones. Furthermore, the races were not distributed evenly, ~70% of the mothers were white. A more complete dataset could help improve the predictive capacity of the model.
+
+It would also be interesting to include other variables in the analysis, such as a variable that captured mother's habits during the pregnancy.
+
+
+## Appendix
+
+#### Model Creation
+
+**Centering the continuous variables to aid in interpretation**
+```{r}
+
+births$mpregwt_c <- births$mpregwt - mean(births$mpregwt)
+births$mht_c <- births$mht - mean(births$mht)
+births$mage_c <- births$mage - mean(births$mage)
+
+birthsmod1 <- glm(Premature ~ mht_c + mpregwt_c + med + smoke + mrace + mage_c + parity + inc, data = births, family = binomial)
+summary(birthsmod1)
+
+```
+
+**Testing removing Parity and Income**
+```{r}
+
+birthsmod2 <- glm(Premature ~ mht_c + mpregwt_c + med + smoke + mrace + mage_c + inc, data = births, family = binomial)
+anova(birthsmod1, birthsmod2, test= "Chisq")
+
+birthsmod3 <- glm(Premature ~ mht_c + mpregwt_c + med + smoke + mrace + mage_c + parity, data = births, family = binomial)
+anova(birthsmod1, birthsmod3, test= "Chisq")
+```
+
+**Checking whether there is a relation between mother's smoking and race**
+```{r}
+
+birthsmod4 <- glm(Premature ~ mrace:smoke + mht_c + mpregwt_c + med + smoke + mrace + mage_c, data = births, family = binomial)
+anova(birthsmod1, birthsmod4, test= "Chisq")
+
+
+```
+
+**Checking whether there is a relation between mother's Age and Mother's eduaction level**
+```{r}
+
+birthsmod4 <- glm(Premature ~ med:mage_c + mht_c + mpregwt_c + med + smoke + mrace + mage_c, data = births, family = binomial)
+anova(birthsmod1, birthsmod4, test= "Chisq")
+
+```
+
+**Summary of the Model**
+```{r}
+
+summary(birthsmod4)
+
+```
+
+
+
+
+
+

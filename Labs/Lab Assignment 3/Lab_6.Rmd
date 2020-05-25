@@ -1,0 +1,273 @@
+---
+title: "Lab 6:  Causal Inference"
+author: "Zhiwei Dong, Guillem Amat"
+date: "11/18/2019"
+output: pdf_document
+---
+
+```{r, echo=FALSE}
+knitr::opts_chunk$set(fig.align="center",echo=FALSE, warning=FALSE, message=FALSE) 
+```
+
+```{r, include = FALSE}
+library(ggplot2)
+library(cobalt)
+library(MatchIt)
+library(randomForest)
+```
+
+```{r}
+# Read in the data
+rhc <- read.csv("/Users/Calvin/Desktop/2019Fall/IDS_702_Modeling/Lab_6/rhc.txt", header=T, sep=" ")
+rhc <- rhc[,-which(names(rhc)=="surv2md1")]
+
+#summary(rhc)
+```
+
+#Exercise 1
+
+
+```{r}
+#Covariate Balance
+#bal.tab(list(treat=as.factor(rhc$treatment),covs=rhc[,2:52],estimand="ATT"))
+
+love.plot(list(treat=as.factor(rhc$treatment),covs=rhc[,2:52],estimand="ATT"),stars = "std") +
+  theme(axis.text.y = element_text(size=4))
+```
+
+
+The covariates in this data are not balanced between the two groups. Absolute Mean Differences of aps1, wtkilo1, meanbp1, pafi1, paco21, hema1, crea1 and alb1 are larger than 0.2. The covariates balance is not good in this data.
+
+#Exercise 2
+
+```{r}
+model1 <- glm (dth30 ~ . , data=rhc,family=binomial)
+#summary(model1)
+
+#try stepwise
+NullModel <- glm(dth30 ~ 1, data = rhc, family=binomial)
+FullModel <- glm(dth30 ~ ., data = rhc, family=binomial)
+
+model_stepwise <- step(NullModel, scope = formula(FullModel),direction="both", trace = 0)
+#model_stepwise
+
+model2 <- glm(formula = dth30 ~ cat1 + aps1 + dnr1 + cat2 + bili1 + age + 
+    treatment + scoma1 + das2d3pc + hema + pafi1 + income + ninsclas + 
+    neuro + resp + gastr + resp1 + transhx + psychhx + amihx + 
+    hrt1 + sex + sod1 + meanbp1, family = binomial, data = rhc)
+#summary(model2)
+
+model3 <- glm(formula = dth30 ~ cat1 + aps1 + dnr1 + cat2 + bili1 + age + 
+    treatment + scoma1 + das2d3pc + hema + pafi1 + income + ninsclas + 
+    neuro + resp, family = binomial, data = rhc)
+#summary(model3)
+
+pr_trt <- predict(model3,type="response",newdata=rhc[rhc$treatment==TRUE,])
+
+pat_ctl <- rhc[rhc$treatment==TRUE,]
+pat_ctl$treatment <- FALSE
+#summary(pat_ctl)
+
+
+pr_ctl <- predict(model3,type="response",newdata=pat_ctl)
+
+diff <- pr_trt - pr_ctl
+
+rhc_1 <- rhc[rhc$treatment==TRUE,]
+rhc_1$pr_trt <- pr_trt
+rhc_1$pr_ctl <- pr_ctl
+
+
+se <- sqrt(var(rhc_1$pr_trt/2184) + 
+            var(rhc_1$pr_ctl/2184))
+
+att <- mean(diff)
+
+#att - 1.96*se
+#att + 1.96*se
+```
+
+The estimated ATT is 0.0809.
+
+#Exercise 3
+
+The The ATT is 0.0809 (positive), which means the probablity of death in following 30 days of patients with RHC treated is 8.1% higher than non-RHC treated patients. 95% confidence interval of estimated ATT is (0.0806, 0.0811) that doesn't include 0, which means there is enough evidence the treatment effect is in fact different from zero and treated patients are worse off with RHC. However, considering bad covariates balance showed in Question 1, I will not completely trust my conclusion here.
+
+#Exercise 4
+
+```{r}
+model_treat <- glm(data = rhc, treatment ~ ., family = binomial)
+#summary(model_treat)
+
+pscores <- predict(model_treat, type = "response")
+#summary(pscores)
+
+#ggplot(rhc, aes(pscores,fill=treatment)) +
+ # geom_histogram(alpha=.6,fill=rainbow(10),bins=10)
+
+#ggplot(rhc, aes(y=pscores, x=treatment, fill=treatment)) +
+ # geom_boxplot()
+
+ggplot(rhc, aes(x=pscores, fill=treatment)) +
+  geom_density(alpha=.3) +
+  xlim(0, 1)
+
+rhc$p_score <- pscores
+
+#sum(rhc$p_score < max(min(rhc$p_score[rhc$treatment==FALSE]),min(rhc$p_score[rhc$treatment==TRUE])))
+
+#sum(rhc$p_score > min(max(rhc$p_score[rhc$treatment==FALSE]),max(rhc$p_score[rhc$treatment==TRUE])))
+
+Index <- !(rhc$p_score < max(min(rhc$p_score[rhc$treatment==FALSE]),min(rhc$p_score[rhc$treatment==TRUE])) | rhc$p_score > min(max(rhc$p_score[rhc$treatment==FALSE]),max(rhc$p_score[rhc$treatment==TRUE])))
+
+#summary(Index)
+
+rhc_log <- rhc[Index,]
+```
+
+The propensity scores don't overlap very well. 91 observations with an estimated propensity score e that is out of the range of e in the other group. They are removed.
+
+#Exercise 5
+
+
+```{r}
+match <- matchit(data = rhc_log, treatment ~ age + sex + race + edu + income + ninsclas + cat1 + cat2 + resp + card + neuro + gastr + renal + meta + hema + seps + trauma + ortho + das2d3pc + dnr1 + ca + aps1 + scoma1 + wtkilo1 + temp1 + meanbp1 + resp1 + hrt1 + pafi1 + paco21 + ph1 + wblc1 + hema1 + sod1 + pot1 + crea1 + bili1 + alb1 + cardiohx + chfhx + dementhx + psychhx + chrpulhx + renalhx + liverhx + gibledhx + malighx + immunhx + transhx + amihx + wt0, method = "nearest", distance = "logit", ratio=1)
+
+rhc_2 <- match.data(match)
+#summary(rhc_2)
+
+#bal.tab(list(treat=as.factor(rhc_2$treatment),covs=rhc_2[,2:52],estimand="ATT"))
+love.plot(list(treat=as.factor(rhc_2$treatment),covs=rhc_2[,2:52],estimand="ATT"),stars = "std") +
+  theme(axis.text.y = element_text(size=4))
+```
+
+
+Most of covariates balance now. There are still three covariates' absolute mean difference larger than 0.2. They are meanbp1, pafi1, aps1.
+
+#Exercise 6
+
+```{r}
+pr_dth <- predict(model3, type="response",newdata=rhc_2)
+
+rhc_2$pr_dth <- pr_dth
+
+trteffct <- mean(rhc_2$pr_dth[rhc_2$treatment == TRUE]) - 
+  mean(rhc_2$pr_dth[rhc_2$treatment == FALSE])
+
+se <- sqrt(var(rhc_2$pr_dth[rhc_2$treatment == TRUE])/2172 + 
+            var(rhc_2$pr_dth[rhc_2$treatment == FALSE])/2172)
+
+
+#trteffct - 1.96*se
+#trteffct + 1.96*se
+```
+
+Average causal effect Q = 0.0863, which means the probablity of death in following 30 days of patients with RHC treated is 8.6% higher than non-RHC treated patients. 95% confidence interval of average causal effect is (0.0739, 0.0987) that doesn't include 0, which means there is enough evidence the treatment effect is in fact different from zero and treated patients are worse off with RHC.
+
+#Exercise 7
+
+```{r}
+RHC_rf <- randomForest(data = rhc, treatment ~ age + sex + race + edu + income + ninsclas + cat1 + cat2 + resp + card + neuro + gastr + renal+ meta + hema + seps + trauma + ortho + das2d3pc + dnr1 + ca + aps1 + scoma1 + wtkilo1 + temp1 + meanbp1 + resp1 + hrt1 + pafi1 + paco21 + ph1 + wblc1 + hema1 + sod1 + pot1 + crea1 + bili1 + alb1 + cardiohx + chfhx + dementhx + psychhx + chrpulhx + renalhx + liverhx + gibledhx + malighx + immunhx + transhx + amihx + wt0, importance =TRUE, warnings=FALSE)
+
+#RHC_rf
+
+pscores_rf <- predict(RHC_rf, type = "response")
+#summary(pscores_rf)
+
+#ggplot(rhc, aes(pscores_rf,fill=treatment)) +
+ # geom_histogram(alpha=.6,fill=rainbow(10),bins=10)
+
+#ggplot(rhc, aes(y=pscores_rf, x=treatment, fill=treatment)) +
+ # geom_boxplot()
+
+ggplot(rhc, aes(x=pscores_rf, fill=treatment)) +
+  geom_density(alpha=.3) +
+  xlim(0, 1)
+
+rhc$p_score_rf <- pscores_rf
+
+#sum(rhc$p_score_rf < max(min(rhc$p_score_rf[rhc$treatment==FALSE]),min(rhc$p_score_rf[rhc$treatment==TRUE])))
+
+#sum(rhc$p_score_rf > min(max(rhc$p_score_rf[rhc$treatment==FALSE]),max(rhc$p_score_rf[rhc$treatment==TRUE])))
+
+Index <- !(rhc$p_score_rf < max(min(rhc$p_score_rf[rhc$treatment==FALSE]),min(rhc$p_score_rf[rhc$treatment==TRUE])) | rhc$p_score_rf > min(max(rhc$p_score_rf[rhc$treatment==FALSE]),max(rhc$p_score_rf[rhc$treatment==TRUE])))
+
+#summary(Index)
+
+rhc_rf <- rhc[Index,]
+```
+
+The propensity scores don't overlap very well. 40 observations with an estimated propensity score e that is out of the range of e in the other group. They are removed.
+
+#Exercise 8
+
+```{r}
+match <- matchit(data = rhc_rf, treatment ~ age + sex + race + edu + income + ninsclas + cat1 + cat2 + resp + card + neuro + gastr + renal + meta + hema + seps + trauma + ortho + das2d3pc + dnr1 + ca + aps1 + scoma1 + wtkilo1 + temp1 + meanbp1 + resp1 + hrt1 + pafi1 + paco21 + ph1 + wblc1 + hema1 + sod1 + pot1 + crea1 + bili1 + alb1 + cardiohx + chfhx + dementhx + psychhx + chrpulhx + renalhx + liverhx + gibledhx + malighx + immunhx + transhx + amihx + wt0, method = "nearest", distance = "logit", ratio=1)
+
+rhc_3 <- match.data(match)
+#summary(rhc_3)
+
+#bal.tab(list(treat=as.factor(rhc_3$treatment),covs=rhc_3[,2:52],estimand="ATT"))
+love.plot(list(treat=as.factor(rhc_3$treatment),covs=rhc_3[,2:52],estimand="ATT"),stars = "std") +
+  theme(axis.text.y = element_text(size=4))
+```
+
+Most of covariates balance now. There is still three covariates' absolute mean difference larger than or around 0.2. They are meanbp1, pafi1, aps1.
+
+#Exercise 9
+
+```{r}
+pr_dth <- predict(model3, type="response",newdata=rhc_3)
+
+rhc_3$pr_dth <- pr_dth
+
+trteffct <- mean(rhc_3$pr_dth[rhc_3$treatment == TRUE]) - 
+  mean(rhc_3$pr_dth[rhc_3$treatment == FALSE])
+
+se <- sqrt(var(rhc_3$pr_dth[rhc_3$treatment == TRUE])/2157 + 
+            var(rhc_3$pr_dth[rhc_3$treatment == FALSE])/2157)
+
+
+#trteffct - 1.96*se
+#trteffct + 1.96*se
+```
+
+Average causal effect Q = 0.0860, which means the probablity of death in following 30 days of patients with RHC treated is 8.6% higher than non-RHC treated patients. 95% confidence interval of average causal effect is (0.0735, 0.0985) that doesn't include 0, which means there is enough evidence the treatment effect is in fact different from zero and treated patients are worse off with RHC.
+
+#Exercise 10
+
+```{r}
+rhc_4 <- rhc_3[,seq(1,53)]
+rhc_4$pscore_rf <- rhc_3$p_score_rf
+
+#try stepwise
+NullModel <- glm(dth30 ~ 1, data = rhc_4, family=binomial)
+FullModel <- glm(dth30 ~ ., data = rhc_4, family=binomial)
+
+model_stepwise <- step(NullModel, scope = formula(FullModel),direction="both", trace = 0)
+#model_stepwise
+
+model4 <- glm(formula = dth30 ~ aps1 + cat1 + dnr1 + bili1 + age + cat2 + 
+    treatment + scoma1 + das2d3pc + pscore_rf + hema + income + 
+    card + resp + neuro +  wtkilo1 + wt0 + sex
+    , family = binomial, data = rhc_4)
+#summary(model4)
+
+pr_dth <- predict(model4, type="response",newdata=rhc_4)
+
+rhc_4$pr_dth <- pr_dth
+
+pos <- mean(rhc_4$pr_dth[rhc_4$treatment == TRUE])
+
+neg <- mean(rhc_4$pr_dth[rhc_4$treatment == FALSE])
+
+ratio <- pos/neg
+
+#ratio - 1.96*se
+#ratio + 1.96*se
+```
+
+Causal odds ratio = 1.28, which means the probablity of death in following 30 days of patients with RHC treated is 1.28 times than non-RHC treated patients. 95% confidence interval of causal odds ratio is (1.26, 1.29) that doesn't include 1, which means there is enough evidence the treated patients are worse off with RHC. The overall findings in line with findings from question 9.
+
+
+

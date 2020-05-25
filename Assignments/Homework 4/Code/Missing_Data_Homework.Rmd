@@ -1,0 +1,263 @@
+---
+title: "Missing Data Homework"
+author: "Guillem_Amat"
+date: "November 9, 2019"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+## Treeage  
+
+This is a dataset on 20 trees comprising age and diameter of trees. Let's create some missing values and run the multiple imputation approach.  
+
+```{r include = FALSE}
+#Remove all the data
+rm(list = ls())
+
+#Import necessary packages
+library(mice)
+library(dplyr)
+library(ggplot2)
+library(sjPlot)
+library(lattice)
+library(latticeExtra)
+library(kableExtra)
+
+```
+
+```{r include = FALSE}
+#Importing the data
+setwd("C:/Users/Guillem/Desktop")
+
+#Import the Data
+TreeData <- read.table("treeage.txt", header = TRUE, sep = ",")
+
+#Checking the Data
+TreeData
+summary(TreeData)
+```
+
+#### Question 1  
+
+Create a dataset with 30% of the age values missing completely at random, leaving all values of diameter observed. Report the R commands you used to make the dataset. Also report the dataset values after you made the ages missing. (This is so we can tell which cases you made missing.)   
+
+```{r}
+
+#Set seed
+set.seed(123)
+
+#Create extra column with binomial distribution with p = 0.3
+TreeData_NA <- cbind(TreeData, rbinom(n = nrow(TreeData), 1, 0.3))
+colnames(TreeData_NA)[4] <- "Observations"
+
+#Mark age as NA for Observations = 1
+TreeData_NA$age[TreeData_NA$Observations == 1] <- NA
+TreeData_NA$Observations <- NULL
+TreeData_NA
+
+```
+
+```{r}
+
+#Visualize missingess patterns
+md.pattern(TreeData_NA)
+md.pairs(TreeData_NA)
+
+```
+
+#### Question 2  
+
+Use a multiple imputation approach to fill in missing ages with the R software mice using a default application, i.e., no transformations in the imputation models. Create m = 50 imputed datasets.  
+
+```{r}
+
+#We will not use number as a 
+Imputation <- mice(TreeData_NA, print = FALSE)
+Prediction_Matrix <- Imputation$predictorMatrix
+Prediction_Matrix[, "number"] <- 0
+
+#Imputing the missing values by using a the Normal Method
+TreeData_I <- mice(TreeData_NA, m = 50, defaultMethod = "norm", print=F, pred = Prediction_Matrix)
+TreeData_I
+
+#Checking the value of the first imputation vs the Original Data
+T1 <- mice::complete(TreeData_I, 1); T1
+T50 <- mice::complete(TreeData_I, 50); T50
+
+```
+
+Use multiple imputation diagnostics to check the quality of the imputations of age, looking at both the marginal distribution of age and the scatter plot of age versus diameter. Run the diagnostics on at least two of the completed datasets. Turn in the graphical displays you made (showing results for at least two completed datasets) and your conclusions about the quality of the imputation model.  
+
+```{r out.width = '40%', out.height = '20%'}
+
+#Marginal plot
+par(mfrow = c(1,3))
+marginal.plot(T1$age)
+marginal.plot(T50$age)
+marginal.plot(TreeData$age)
+
+```
+
+```{r out.width = '40%', out.height = '20%'}
+
+#Age vs Diameter Scatter Plot
+par(mfrow = c(1,3))
+
+ggplot(T1, aes(x=age, y=diameter, col = "red")) +
+  geom_point(size=2) + theme_classic()
+ggplot(T50, aes(x=age, y=diameter, col = "red")) +
+  geom_point(size=2) + theme_classic()
+ggplot(TreeData, aes(x=age, y=diameter, col = "red")) +
+  geom_point(size=2) + theme_classic()
+
+```
+
+```{r out.width = '40%', out.height = '20%'}
+
+#Density Plot
+densityplot(TreeData_I)
+densityplot(TreeData_I, subset = .imp ==c(1,50))
+
+```
+
+_From the scatter plots it seems that the two imputed datasets are linear enough. The marginal plots seem to adhere to normality for T1 but not for T50. We will fit the models to the data and check for the different assumptions._  
+
+
+```{r}
+# Fitting a model to the Imputation data of T1 and T50
+T1_Model <- lm(age ~ diameter, T1)
+T50_Model <- lm(age ~ diameter, T50)
+
+#Assumptions for T1
+par(mfrow = c(2,2))
+plot(T1_Model, which = 1); plot(T1_Model, which = 2); plot(T1_Model, which = 3); plot(T1_Model, which = 5) 
+
+#Assumptions for T50
+par(mfrow = c(2,2))
+plot(T50_Model, which = 1); plot(T50_Model, which = 2); plot(T50_Model, which = 3); plot(T50_Model, which = 5) 
+
+```
+
+_We do not observe any major issues with model assumptions. We observe a little bit of skew in the T50 normal Q-Q plot and a bit of uneveness in Variance for both T1 and T50, but that is mostly due to the small sample size (20 values). We will therefore not apply any transformations to the underlying data._
+
+
+```{r}
+
+Tree_Pooled <- with(TreeData_I, lm(age ~ diameter))
+
+#I have commented the summary line because the output is way too long
+#summary(Tree_Pooled)
+
+```
+
+
+#### Conclusions  
+
+_The quality of imputations is quite good. After comparing the models of the Full dataset to a couple of the imputations we can see that the slope for diameter is pretty accurate. The Intercept is a bit far from the real value in the T50 imputed dataset for instance, but that could also be due to the small number of observations of the dataset. Overall, the imputation method worked quite well and our model would be close enough to the real thing_  
+
+
+## Nhanes  
+
+
+```{r}
+
+#Importing the data
+Nhanes_Data <- read.csv("nhanes.csv", header = TRUE, sep = ",")
+
+#Changing the type of factor columns to numeric
+Nhanes_Data$age <- as.numeric(Nhanes_Data$age)
+Nhanes_Data$riagendr <- as.factor(Nhanes_Data$riagendr)
+Nhanes_Data$ridreth2 <- as.factor(Nhanes_Data$ridreth2)
+Nhanes_Data$bmxwt <- as.numeric(Nhanes_Data$bmxwt)
+Nhanes_Data$bmxbmi <- as.numeric(Nhanes_Data$bmxbmi)
+Nhanes_Data$bmxtri <- as.numeric(Nhanes_Data$bmxtri)
+Nhanes_Data$bmxwaist <- as.numeric(Nhanes_Data$bmxwaist)
+Nhanes_Data$bmxthicr <- as.numeric(Nhanes_Data$bmxthicr)
+Nhanes_Data$bmxarml <- as.numeric(Nhanes_Data$bmxarml)
+Nhanes_Data$bmxarml <- as.numeric(Nhanes_Data$bmxarml)
+
+
+Nhanes_Data$dmdeduc <- as.numeric(Nhanes_Data$dmdeduc) #Converting as num
+Nhanes_Data$dmdeduc <- as.factor(Nhanes_Data$dmdeduc) #Refactorizing to drop unused levels
+
+Nhanes_Data$indfminc <- as.numeric(Nhanes_Data$indfminc)
+Nhanes_Data$indfminc <- as.factor(Nhanes_Data$indfminc)
+
+#Changing dots(missing values) in the data to NAs
+Nhanes_Data[Nhanes_Data == "."] <- NA
+
+#Dropping unecessary variables
+Nhanes_Data <- Nhanes_Data %>%
+  select(-c("sdmvstra", "sdmvpsu", "wtmec2yr"))
+
+#Cheking the data
+str(Nhanes_Data)
+
+```
+
+#### Question 1  
+
+Use a multiple imputation approach to fill in missing values with the R software mice using a default application (no transformations in the modeling).  
+
+```{r}
+
+#Using mice to create 10 imputations
+Nhanes_I <- mice(Nhanes_Data, m = 10, defaultMethod = "norm", print=F)
+Nhanes_I
+
+#Checking the first and the last imputation
+N1 <- mice::complete(Nhanes_I, 1); #N1
+N10 <- mice::complete(Nhanes_I, 10); #N10
+
+```
+
+#### Question 2  
+
+Use multiple imputation diagnostics to check the quality of the imputations, looking at both marginal distributions and scatter plots. Run the diagnostics on at least two of the completed datasets. Turn in plots for bmxbmi (BMI measurement) by age and bmxbmi by riagendr (gender)  
+
+```{r out.width = '40%', out.height = '20%'}
+
+par(mfrow = c(2,2))
+
+stripplot(Nhanes_I, age ~ .imp, col = c('grey', 'darkred'), pch = c(1, 1))
+stripplot(Nhanes_I, bmxthicr ~ .imp, col = c('grey', 'darkred'), pch = c(1, 1))
+stripplot(Nhanes_I, dmdeduc ~ .imp, col = c('grey', 'darkred'), pch = c(1, 1))
+stripplot(Nhanes_I, bmxbmi ~ .imp, col = c('grey', 'darkred'), pch = c(1, 1))
+
+```
+
+```{r out.width = '40%', out.height = '20%'}
+
+#Plotting bmxbmi vs age and bmxbmi vs riagendr
+xyplot(Nhanes_I, bmxbmi ~ age | .imp, pch = c(1, 2), cex = 1, col = c('grey', 'darkred'))
+xyplot(Nhanes_I, bmxbmi ~ riagendr | .imp, pch = c(1, 2), cex = 1, col = c('grey', 'darkred'))
+```
+
+_We can conclude from the multiple plots that the model does a pretty good job imputing the values. Most of the imputations are fit in the range of values of the data_  
+
+#### Question 3  
+
+Run a model that predicts BMI from some subset of age, gender, race, education, and income. Apply the multiple imputation combining rules to obtain point and variance estimates for the regression parameters that account for missing data. Interpret the results of your final model. 
+
+```{r}
+
+Null_model = lm(bmxbmi ~ 1, N1)
+Full_model = lm(bmxbmi ~ age + ridageyr + riagendr + ridreth2 + dmdeduc + indfminc, N1)
+Nhanes_Model <- step(Null_model, scope = formula(Full_model), direction = 'forward', trace = 0)
+summary(Nhanes_Model)
+
+```
+
+_Almost all the coefficient in the model are very significant. ridreth and dmdeduc are the most significant predictors. I used a forward selection model, starting with a model that had no variables to a complete model with all the meaningful variables but no interactions. R-Squared suggests that 36% of the variability in the data is explained by the model_  
+
+```{r complete2, echo = TRUE, out.width = '50%', out.height = '50%'}
+Nhanes_Pooled <- with(Nhanes_I, lm(bmxbmi ~ ridageyr + age + dmdeduc + riagendr + ridreth2 +
+                                        indfminc))
+
+summary(pool(Nhanes_Pooled)) %>%
+  kable() %>%
+  kable_styling()
+```
+
