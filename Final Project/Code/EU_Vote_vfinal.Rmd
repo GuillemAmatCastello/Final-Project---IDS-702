@@ -1,0 +1,452 @@
+---
+title: 'European Union: Membership Vote'
+author: "Guillem_Amat"
+date: "December 8th, 2019"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r include = FALSE}
+rm(list = ls())
+
+library(viridis)
+library(dplyr)
+library(ggplot2)
+library(scales) #Just to show percentages
+library(mice)
+library(lme4)
+library(rms)
+library(tidyr)
+library(kableExtra)
+library(arm)
+library(pROC)
+library(gridExtra)
+library(GGally)
+
+```
+  
+\  
+
+#### Summary
+
+This report investigates the association different socio-demographic and related variables have on the decision to vote whether to leave or remain in the European Union among individiuals living across the main EU member states. It explores what the main variables are when predicting a remain vote and whether there are differences at the member state level. A Logistic Multilevel Model, where member states were allowed to have random intercepts, was fit to the data to answer these questions. *Age*, *Education Level*, *Total Household Income*, *Political Interest* and *European and Country Attachment* were found to be the most significant predictors while *Marital Status*, *Gender* and *Minority Membership* were found to be less important. EU Member States were found to have significantly different voting patterns, where Spain and Poland had clearly higher intercepts than the United Kingdom or the Czech Republic.  
+\  
+
+#### Introduction
+
+The European Union is union of a group of 28 member states that has institutions that govern common economic, social and security issues. Under the Common Internal Market, the EU guarantees the free movement of goods, services and people inside its borders. Since 2008, after the Eurozone Debt Crisis, there has been a growing wave of discontent in Europe that culminated in the decision of the United Kingdom to leave the Union in a referendum in 2016. Populist and Eurosceptic parties that have an EU Membership Referendum in their political agenda have appeared in many countries.
+
+In order to better understand the voters and to get a glimpse of the future of the European Union, this Report set out to answer two main questions:
+
++ What predictors are useful in identifying individuals that would vote to leave the European Union?
++ Are there differences at the country level?  
+\  
+
+```{r include = FALSE}
+
+setwd("C:/Users/Guillem/Desktop/Duke University/Modeling and Representation of Data/6_Final Project/0_Data")
+European_Data <- read.csv("ESS8e02.1_F1.csv", sep = ",", header = TRUE)
+Useful_Variables <- read.csv("C:/Users/Guillem/Desktop/Duke University/Modeling and Representation of Data/6_Final Project/0_Data/Useful_Variables.csv", sep = ",", header = FALSE)
+
+```
+
+```{r include = FALSE}
+
+#Turning Useful Variables into a vector/list I can use to subset the whole dataset
+Useful_Variables <- as.vector(Useful_Variables[,1])
+Useful_Variables <- as.list(Useful_Variables)
+
+#Subsetting the European Clean Dataframe
+European_Clean <- European_Data[ ,which((names(European_Data) %in% Useful_Variables)==TRUE)]
+
+```
+
+```{r include = FALSE}
+
+#Input the values from EU referendum question for GB to column with EU countries
+European_Clean$vteurmmb <- ifelse(European_Clean$cntry == "GB", European_Clean$vteumbgb, European_Clean$vteurmmb)
+European_Clean$vteumbgb <- NULL 
+
+#Filter Dataset to Interesting EU Countries
+EU_Data <- European_Clean %>%
+            filter(cntry %in% c("GB", "ES", "IT", "FR", "DE", "CZ", "HU", "BE", "AT", "NL", "PT", "PL"))
+
+EU_Data$cntry <- as.character(EU_Data$cntry) 
+EU_Data$cntry <- as.factor(EU_Data$cntry)
+
+
+```
+
+```{r include = FALSE}
+
+#The main variables that we are going to use are going to be Gender(gndr), Age(agea), Years of Education, Minority  Membership, Marital Status, Income Category
+
+#Creating a Generation Vector
+EU_Data <- EU_Data %>%
+  mutate(Generation = case_when(agea < 21 ~ "Post-Millennials",
+                                agea < 37 ~ "Millennials",
+                                agea < 54 ~ "Generation X",
+                                agea < 73 ~ "Baby Boomers",
+                                agea < 101 ~ "Silent Generation",
+                                TRUE ~ NA_character_))
+
+EU_Data$Generation <- as.factor(EU_Data$Generation)
+
+#Correcting the Gender vector. NAs are No Answer. 0 = Male, 1 = Female
+EU_Data <- EU_Data %>%
+  mutate(Gender = case_when(gndr == 1 ~ "Male",
+                            gndr == 2 ~ "Female",
+                            TRUE ~ NA_character_))
+
+EU_Data$Gender <- as.factor(EU_Data$Gender)
+
+# Correcting the Minority Vector. NAs can be No Answer, Refusal, Don't Know. 0 = Not Minority, 1 = Minority
+EU_Data <- EU_Data %>%
+  mutate(Minority = case_when(blgetmg == 1 ~ "Minority",
+                              blgetmg == 2 ~ "Not Minority",
+                              TRUE ~ NA_character_))
+
+EU_Data$Minority <- as.factor(EU_Data$Minority)
+
+#Correcting Income vector. NAs can be Refusal, No Answer and Don't Know. By deciles of Income.
+
+EU_Data <- EU_Data %>%
+  mutate(Income_Level = case_when(hinctnta == 1 ~ "1",
+                                  hinctnta == 2 ~ "2",
+                                  hinctnta == 3 ~ "3",
+                                  hinctnta == 4 ~ "4",
+                                  hinctnta == 5 ~ "5",
+                                  hinctnta == 6 ~ "6",
+                                  hinctnta == 7 ~ "7",
+                                  hinctnta == 8 ~ "8",
+                                  hinctnta == 9 ~ "9",
+                                  hinctnta == 10 ~ "10",
+                                  TRUE ~ NA_character_))
+
+EU_Data$Income_Level <- as.numeric(EU_Data$Income_Level)
+
+#Vote EU Membership. Missing can be: Blank ballot, Spoil ballot, Not vote, Not eligible to vote, Refusal, Don't Know, No Answer. 0 = Leave the European Union, 1 = Remain in the European Union
+
+
+EU_Data <- EU_Data %>%
+  mutate(Membership = case_when(vteurmmb == 1 ~ "Remain",
+                                vteurmmb == 2 ~ "Leave",
+                                TRUE ~ NA_character_))
+
+EU_Data$Membership <- as.factor(EU_Data$Membership)
+
+#EU Unification. 6% of NAs
+
+EU_Data <- EU_Data %>%
+  mutate(Unification = euftf)
+
+EU_Data$Unification <- ifelse(EU_Data$Unification > 10, NA, EU_Data$Unification)
+
+#Education Level
+
+EU_Data <- EU_Data %>%
+  mutate(Education_Level = case_when(eisced == 1 ~ "Less than Lower Secondary",
+                                     eisced == 2 ~ "Lower Secondary",
+                                     eisced == 3 ~ "Upper Secondary",
+                                     eisced == 4 ~ "Upper Secondary",
+                                     eisced == 5 ~ "Sub-degree",
+                                     eisced == 6 ~ "Bachelor degree",
+                                     eisced == 7 ~ "Master degree",
+                                     TRUE ~ NA_character_))
+
+EU_Data$Education_Level <- as.factor(EU_Data$Education_Level)
+
+#Country Attachment
+
+EU_Data <- EU_Data %>%
+  mutate(Country_Attachment = atchctr)
+
+EU_Data$Country_Attachment <- ifelse(EU_Data$Country_Attachment > 10, NA, EU_Data$Country_Attachment)
+
+
+#Europe Attachment
+
+EU_Data <- EU_Data %>%
+  mutate(European_Attachment = atcherp)
+
+EU_Data$European_Attachment <- ifelse(EU_Data$European_Attachment > 10, NA, EU_Data$European_Attachment)
+
+
+#Marital Status. 0 = Not currently married, 1 = Married
+
+EU_Data <- EU_Data %>%
+  mutate(Marital_Status = case_when(marsts == 1 ~ "Married",
+                                    marsts == 2 ~ "Married",
+                                    marsts == 3 ~ "Not Married",
+                                    marsts == 4 ~ "Not Married",
+                                    marsts == 5 ~ "Not Married",
+                                    marsts == 6 ~ "Not Married",
+                                    marsts == 66 ~ "Not Married",
+                                    TRUE ~ NA_character_))
+
+EU_Data$Marital_Status <- as.factor(EU_Data$Marital_Status)
+
+
+#Happinness. 0 = Extremely Unhappy, 10 = Extremely Happy
+
+EU_Data <- EU_Data %>%
+  mutate(Happy = happy)
+
+EU_Data$Happy <- ifelse(EU_Data$Happy > 10, NA, EU_Data$Happy)
+
+#Politics Interest.
+
+EU_Data <- EU_Data %>%
+  mutate(Political = case_when(polintr == 1 ~ "Very Interested",
+                                    polintr == 2 ~ "Quite Interested",
+                                    polintr == 3 ~ "Hardly Interested",
+                                    polintr == 4 ~ "Not at all Interested",
+                                    TRUE ~ NA_character_))
+
+EU_Data$Political <- as.factor(EU_Data$Political)
+
+
+```
+
+```{r include = FALSE}
+
+EU_Final <- EU_Data %>%
+              dplyr::select(cntry, Generation, Gender, Minority, Marital_Status, Income_Level, Education_Level, European_Attachment, Country_Attachment, Unification, Membership, Happy, Political)
+
+EU_Final <- na.omit(EU_Final)
+
+
+```
+
+#### Data
+
+The dataset for this report came from the European Research Infrastructure Consortium. The European Social Survey (ESS), is an initiative that aims to map the attitudes, behavioural patterns and beliefs of individuals across Europe. The dataset contained over 570 variables and 45.000 observations, of which there where approximately 3.000 per Country. The topics of the variables could be categorized into eight main groups that included Politics, Climate-Change, Socio-Demographic, Country, Human Values, Welfare Attitudes, Media and Social Trust and Well-Being.
+
+The first step in the analysis of the dataset was the selection of the variables that would be included in the model and tested for statistical significance. The process to do so was through the analysis of the documentation and the inspection of the variables. Variables that were country specific, that had over 30% of missing values or that were dimmed not relevant to the prediction of a remain vote  were automatically removed from the analysis. A second step in the variable selection process was the evaluation of the most interesting ones, which was a qualitative process, and the removal of variables that would be highly correlated i.e. Trust in Politicians and Trust in Political Parties.
+
+The variables that were selected were the following:
+
+1. Country (factor): Country
+2. Membership (binary): Would vote for [country] to remain member of European Union or leave
+3. European_Attachment (numeric): How emotionally attached to Europe
+4. Country_Attachment (numeric): How emotionally attached to [country]
+5. Income_Level (numeric): Household's total net income, all sources
+6. Education_Level (factor): Highest level of education
+7. Generation (factor): Respondent's generation
+8. Gender (factor): Respondent's gender
+9. Minority (factor): Do you belong to a minority in [country]?
+10. Marital_Status (factor): Legal marital status
+11. Happiness (numeric): How happy are you?
+12. Political (numeric): How interested in politics are you?
+
+After variables where selected, observations were filtered to only select countries where the Membership variable was applicable, that is member states of the European Union, including the United Kingdom. As a final step the dataset was filtered to only account for complete observations. For this analysis, it was assumed that data was missing completely at random for all variables, as there were no clear signs or indications that it was not the case. There was one exception to this though, as Income level seemed to miss not at random. It would be expected that income deciles among the population would be evenly distributed, but it was not the case in the dataset, as the top and bottom deciles represented a lower percentage of the population than would be expected.
+
+After having cleaned the dataset, the data was explored to identify any potential associations between the outcome variable and the predictors before fitting the data to the model.  
+\  
+
+```{r echo = FALSE, include=TRUE, fig.align='center', fig.width=10, fig.height = 2.5}
+
+#Income Level
+Income_plot <- ggplot(EU_Final, aes(x = Membership, y=Income_Level)) +
+                        geom_boxplot(fill = rgb(49/255, 199/255, 127/255)) +
+                        theme_classic() + labs(subtitle = "Vote by Income Level", y = "Income Level")
+
+#European Attachment
+EuropeanA_plot <- ggplot(EU_Final, aes(x = Membership, y=European_Attachment)) +
+                        geom_boxplot(fill=rgb(49/255, 199/255, 127/255)) +
+                        theme_classic() + labs(subtitle = "Vote by Europe Attachment", y = "European Attachment")
+
+#Country Attachment
+CountryA_plot <- ggplot(EU_Final, aes(x = Membership, y=Country_Attachment)) +
+                        geom_boxplot(fill= rgb(49/255, 199/255, 127/255)) +
+                        theme_classic() + labs(subtitle = "Vote by Country Attachment", y = "Country Attachment")
+
+#Happy
+Happy_plot <- ggplot(EU_Final, aes(x = Membership, y=Happy)) +
+                  geom_boxplot(fill= rgb(49/255, 199/255, 127/255)) +
+                  theme_classic() +
+                  labs(subtitle = "Vote by Happiness Level", y = "Happinness Level")
+
+gridExtra::grid.arrange(Income_plot, EuropeanA_plot, CountryA_plot, Happy_plot, ncol=4)
+
+```
+
+- There seems to be a significant positive relationship between Income Level, Attachment to Europe and Education Level. The wealthier, more educated and more attached people feel to Europe, the more likely it seems they are to vote to Remain in the European Union. 
+- It is hard to tell whether there is a relationship between someone's attachment to their own country and a vote in a hypothetical referendum to leave or remain in the EU. From the boxplot, medians seem to fall around the same value, although the Interquartile range is narrower for remainers.  
+
+\  
+
+```{r echo = FALSE, include=TRUE, fig.align='center', fig.width=10, fig.height = 2.5}
+
+#Generation_Membership
+ Generation_plot <- ggplot(EU_Final, aes(x= forcats::fct_relevel(Generation, "Post-Millennials", "Millennials", "Baby Boomers", "Generation X", "Silent Generation"), fill = Membership)) +
+  scale_fill_manual(labels = c("Leave", "Remain"), values = c(rgb(227/255, 227/255, 227/255), rgb(49/255, 199/255, 127/255)))+
+  scale_x_discrete(labels = abbreviate) +
+  theme_classic() +
+  labs(title = "Vote by Generation", subtitle = "In percentage (%)", y = "Membership Vote", x = "Education Level") +
+  geom_bar(position = "fill")
+
+#Education_Membership
+Education_plot <- ggplot(EU_Final, aes(x= forcats::fct_relevel(Education_Level, "Less than Lower Secondary", "Lower Secondary", "Upper Secondary", "Sub-degree", "Bachelor degree", "Master degree"), fill = Membership)) +
+  scale_fill_manual(labels = c("Leave", "Remain"), values = c(rgb(227/255, 227/255, 227/255), rgb(49/255, 199/255, 127/255)))+
+  scale_x_discrete(labels = abbreviate) +
+  theme_classic() +
+  labs(title = "Vote by Education Level", subtitle = "In percentage (%)", y = "Membership Vote", x = "Generation") +
+  geom_bar(position = "fill")
+
+gridExtra::grid.arrange(Generation_plot, Education_plot, ncol=2)
+
+```
+
+- Younger generations of voters seem to be more likely to vote in favour of staying in the European Union than older ones. It seems support for the European Union plateaus with Baby Boomers, Generation X and the Silent Generation.
+- There seems to be an association between more Education and a higher likelihood of a remain vote. Around 85% of the people with a degree would vote to remain in the EU.
+
+\ 
+
+```{r echo = FALSE, include=TRUE, fig.align='center', fig.width=10, fig.height = 2.5}
+
+#Minority_Membership
+Minority_plot <- ggplot(EU_Final, aes(x= forcats::fct_relevel(Minority, "Not Minority", "Minority"), fill = Membership)) +
+  scale_fill_manual(labels = c("Leave", "Remain"), values = c(rgb(227/255, 227/255, 227/255), rgb(49/255, 199/255, 127/255)))+
+  theme_classic() +
+  labs(title = "Vote by Gender", subtitle = "In percentage (%)", y = "Membership Vote", x = "Minority") +
+  geom_bar(position = "fill")
+
+#Gender_Membership
+Gender_plot <- ggplot(EU_Final, aes(x= forcats::fct_relevel(Gender, "Male", "Female"), fill = Membership)) +
+  scale_fill_manual(labels = c("Leave", "Remain"), values = c(rgb(227/255, 227/255, 227/255), rgb(49/255, 199/255, 127/255)))+
+  theme_classic() +
+  labs(title = "Vote by Education Level", subtitle = "In percentage (%)", y = "Membership Vote", x = "Gender") +
+  geom_bar(position = "fill")
+
+#Marital_Membership
+Marital_plot <- ggplot(EU_Final, aes(x= Marital_Status, fill = Membership)) +
+  scale_fill_manual(labels = c("Leave", "Remain"), values = c(rgb(227/255, 227/255, 227/255), rgb(49/255, 199/255, 127/255)))+
+  theme_classic() +
+  labs(title = "Vote by Marital Status", subtitle = "In percentage (%)", y = "Membership Vote", x = "Marital Status") +
+  geom_bar(position = "fill")
+
+
+gridExtra::grid.arrange(Gender_plot, Minority_plot, Marital_plot, ncol=3)
+
+```
+
+- Females and Minorities seem to be slightly more in favour of staying in the EU. Married people would seem to be more likely to vote to leave the EU than their counterparts.
+
+\ 
+
+
+```{r echo = FALSE, include=TRUE, fig.align='center', fig.width=10, fig.height = 2.5}
+
+
+#Country_Membership
+ggplot(EU_Final, aes(x= forcats::fct_relevel(cntry, "ES", "PL", "DE", "PT", "BE", "HU", "NL", "FR", "AT", "IT", "CZ", "GB"), fill = Membership)) +
+  scale_fill_manual(labels = c("Leave", "Remain"), values = c(rgb(227/255, 227/255, 227/255), rgb(49/255, 199/255, 127/255)))+
+  theme_classic() +
+  labs(title = "Membership Vote by Country", subtitle = "In percentage (%)", y = "Membership Vote", x = "Country") +
+  geom_bar(position = "fill")
+
+```
+
+- At the Country Level, there are clear differences in the ratio of voters who would choose to remain and leave the European Union. By looking at aggregate figures, Spain and Poland are more supportive of the EU than the Czech Republic or the United Kingdom. 
+
+We will proceed to fit a model to the data to statistically test for significance.  
+\  
+
+
+#### Model
+
+A random-intercepts model was used to fit the data. The general formula for a logistic random-intercepts model is the following:
+
+$$y_{ij}|x_{ij} \sim Bernoulli(\pi_{ij}); i = 1,..., n_{j}; j = 1,...,J;$$
+
+$$log(\frac{\pi_{ij}}{1-\pi_{ij} })=\beta_{0j} + \tau_{0} +\beta_1x_{1ij};$$
+$$\tau_{0j}\sim N(0,\sigma_{0}^2)$$
+where i indexes observations, j indexes groups, $\sigma^2$ is the within group (residual) variance, and $\tau^2$ is the between group (intercept) variance. 
+
+The data was split between a Train (70%) and a Test (30%) set and a final model was fit with all the main variables. Countries were used as the level since we want to compare the results of a hypothetical referendum across member states. Therefore, it is most appropriate to generate the varying-intercepts model using Countries as the random effect variable. Most of the intuition and hypothesis that were developed by exploring the data were found to be true. Attachment to Europe, Education Level, Income Level, Political Interest and Happiness Level had a positive association with a remain vote. On the other  hand Country Attachment had a negative association with a remain vote. At a lower significance level Females and Minorities seemed to be more likely to vote in favour of remaining in the European Union. Being Married did not seem to have an impact on a vote to remain or to leave the European Union. The final Model had a remarkably similar AUC between the Train (0.795) and Test (0.794) set, performing only marginally worse in the latter, suggesting there was very little overfitting. The Sensitivity and Specificity at the best threshold also hovered around 0.7 to 0.75 in both Test and Train data. If we combine the values of Accuracy, Sensitivy and Specificity for the model it seems that a model with all these variables would have a pretty good predictive ability.
+
+```{r include = FALSE}
+
+## 75% of the sample size
+Sample_Size <- floor(0.75 * nrow(EU_Final))
+
+## set the seed to make your partition reproducible
+set.seed(123)
+train_ind <- sample(seq_len(nrow(EU_Final)), size = Sample_Size)
+
+Train <- EU_Final[train_ind, ]
+Test <- EU_Final[-train_ind, ]
+
+```
+
+```{r include = FALSE}
+
+#Normal Logistic Model
+Membership_Model_glm <- glm(Membership ~ Gender + relevel(Generation, ref = "Post-Millennials") + Minority + Marital_Status + Income_Level + European_Attachment + Country_Attachment + Happy + Political + relevel(Education_Level, ref ="Less than Lower Secondary"), data = Train, family = binomial(link="logit"))
+
+
+#Hierarchical Logistic Model
+Membership_Model_Hierarchical <- glmer(Membership ~ Gender + relevel(Generation, ref = "Post-Millennials") + Minority + Marital_Status + Income_Level + European_Attachment + Country_Attachment + Happy + relevel(Political, ref ="Not at all Interested") + relevel(Education_Level, ref ="Less than Lower Secondary") + (1|cntry), data = Train, family = binomial(link="logit"))
+
+
+```
+
+```{r include = FALSE, eval = FALSE}
+
+#Response Variable
+arm::binnedplot(fitted(Membership_Model_Hierarchical),residuals(Membership_Model_Hierarchical,"resp"),xlab="Pred. probabilities", col.int="red4",ylab="Avg. residuals",main="Binned residual plot",col.pts="navy")
+
+```
+
+```{r echo = FALSE, include=TRUE, fig.align='center', fig.width=8, fig.height = 2.5, fig.cap = 'AUC results in Train(left) and Test(right) sets'}
+
+par(mfrow = c(1,2))
+
+#AUC & ROC on Train set
+roc(Train$Membership,fitted(Membership_Model_Hierarchical),plot=T,print.thres="best",legacy.axes=T,
+    print.auc =T,col="red3")
+
+#AUC & ROC on Train set
+Predictions <- predict(Membership_Model_Hierarchical, Test)
+
+roc(Test$Membership,Predictions,plot=T,print.thres="best",legacy.axes=T,
+    print.auc =T,col="red3")
+
+```
+
+If we wanted to build a more accurate model to predict remain or leave vote based on the variables that have been analyzed we could include Interactions between Country Attachment and European Attachment, Income Level and Education Level and drop Minority. Multiple versions of the same model were built doing so and F-tests pointed to a better predictive ability of the latter. Nevertheless, this is not the aim of this report.  
+\  
+
+
+#### Conclusions
+
+The following table summarizes the Confidence Intervals of the odds of the predictors:  
+\  
+
+```{r echo = FALSE}
+
+confidence <- confint(Membership_Model_Hierarchical, parm = "beta_", method = "Wald")
+Results <- as.data.frame(exp(confidence))
+
+Results %>%
+  kable() %>%
+  kable_styling()
+
+```
+
+A dotplot of the multilevel model can be used to identify voting pattern differences across member states. From the results of the dotplot shown below, it is clear that response results vary across countries, where Spain, Poland and Portugal have clearly higher intercepts than the rest, while the United Kingdom and the Czech Republic have significantly lower ones.  
+\  
+
+```{r echo = FALSE}
+
+Intercepts_Countries <- ranef(Membership_Model_Hierarchical,condVar=TRUE)
+dotplot(Intercepts_Countries, condVar=TRUE)
+
+```
+
+Even though we dropped uncomplete observations while data was missing not at random for Income and the Binned Plots of the response variable showed a certain pattern for the average of the residuals, many insights about the voting patterns of the people of Europe in a hypothetical Referendum could be generated. Specifically, the results showed that there is an increase in remain vote for wealthier, more educated people. Younger generations were clearly more pro-EU than their older counterparts.
+
+From now onwards these are just my thoughts after seeing the results of the analysis. I feel more relieved after having worked on this topic. My conclusio after this project is that the current wave of eurosceptiscism will fade away as the economic situation in Europe gets better. While there is a large part of the population that would support to leave the EU, there is also solid support across all member state to remain. In the future, as new generations are born and the population gets increasingly better education, we should see increased support for the EU. 
